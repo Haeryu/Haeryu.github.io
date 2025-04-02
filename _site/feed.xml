@@ -1,5 +1,12 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="3.10.0">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-04-02T21:59:02+09:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">Workspace</title><subtitle></subtitle><entry><title type="html">I Built a Deep Learning Framework in Zig and Trained GPT-2.</title><link href="http://localhost:4000/2025/04/02/zig-gpt.html" rel="alternate" type="text/html" title="I Built a Deep Learning Framework in Zig and Trained GPT-2." /><published>2025-04-02T00:00:00+09:00</published><updated>2025-04-02T00:00:00+09:00</updated><id>http://localhost:4000/2025/04/02/zig-gpt</id><content type="html" xml:base="http://localhost:4000/2025/04/02/zig-gpt.html"><![CDATA[<p>I wanted to learn how a deep learning framework is structured.<br />
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="3.10.0">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-04-03T03:56:45+09:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">Workspace</title><subtitle></subtitle><entry><title type="html">I Built a Deep Learning Framework in Zig and Trained GPT-2.</title><link href="http://localhost:4000/2025/04/02/zig-gpt.html" rel="alternate" type="text/html" title="I Built a Deep Learning Framework in Zig and Trained GPT-2." /><published>2025-04-02T00:00:00+09:00</published><updated>2025-04-02T00:00:00+09:00</updated><id>http://localhost:4000/2025/04/02/zig-gpt</id><content type="html" xml:base="http://localhost:4000/2025/04/02/zig-gpt.html"><![CDATA[<p>I wanted to learn how a deep learning framework is structured.<br />
 So I built one.</p>
+
+<p>Here’s my repos:</p>
+<ul>
+  <li>Tensor Object → <a href="https://github.com/Haeryu/tomo">Tomo - Tomo: Object for Mathematical Operation</a></li>
+  <li>Core Framework → <a href="https://github.com/Haeryu/tomorin">Tomorin - TOMO Runs In Neural network</a></li>
+  <li>GPT-2 Training → <a href="https://github.com/Haeryu/nina">Nina - Nina Is Not AI</a></li>
+</ul>
 
 <p>It’s slow. Maybe it’s inefficient. The code is messy.<br />
 But it was worth it.<br />
