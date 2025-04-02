@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ko-en">
+<head>
+  <meta charset="UTF-8">
+  <title>I Built a Deep Learning Framework in Zig and Trained GPT-2. | Workspace</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/assets/css/style.scss">
+</head>
+<body>
+  <header>
+    <h1><a href="/">Workspace</a></h1>
+    <p></p>
+    <nav>
+      <a href="/">Home</a> |
+      <a href="/blog.html">Blog</a>
+    </nav>
+    <hr>
+  </header>
+
+  <main>
+    <p>I wanted to learn how a deep learning framework is structured.<br />
+So I built one.</p>
+
+<p>It’s slow. Maybe it’s inefficient. The code is messy.<br />
+But it was worth it.<br />
+It runs.</p>
+
+<blockquote>
+  <p>Trained on Tiny Shakespeare.</p>
+
+  <p>[prompt]</p>
+
+  <p>Darth Vader:
+Join me, and I will complete your training. 
+With our combined strength, we can end this destructive conflict and bring order to the galaxy.</p>
+
+  <p>Luke:
+I’LL NEVER JOIN YOU!!</p>
+
+  <p>Darth Vader:
+If you only knew the power of the Dark Side. Obi-Wan never told you what happened to your father.</p>
+
+  <p>Luke:
+He told me enough! He told me you killed him!</p>
+
+  <p>Darth Vader:
+No. I, am your father.</p>
+
+  <p>[generated]</p>
+
+  <p>Darth Vader:
+Join me, and I will complete your training. With our combined strength, we can end this destructive conflict and bring order to the galaxy.</p>
+
+  <p>Luke:
+I’LL NEVER JOIN YOU!!</p>
+
+  <p>Darth Vader:
+If you only knew the power of the Dark Side. Obi-Wan never told you what happened to your father.</p>
+
+  <p>Luke:
+He told me enough! He told me you killed him!</p>
+
+  <p>Darth Vader:
+No. I, am your father.</p>
+
+  <p>I know how?
+But that is to the truth of war to return:
+Lord:
+I am king, might put
+What man so beaten as ever see your fair a paragon to crow, as it, he hath sorrow, be found him not thyself.
+His fault?
+And I banish’d away.</p>
+
+  <p>As cheap yea, welcome. Away with us, I continue
+BRUTUS: so be with mistress</p>
+
+  <p>Then are my mind, by the soul: be in a
+Of raise his state to the truth of any thing; and effect slain</p>
+</blockquote>
+
+<p>Loss: 10.47 → 0.9
+That’s it.</p>
+
+<h2 id="what-inspired-this">What inspired this</h2>
+<hr />
+
+<p>I started learning deep learning with the <em>Deep Learning from Scratch</em> series (volumes 1, 2, 3) — the Korean translation.<br />
+<a href="https://www.amazon.co.jp/stores/%E6%96%8E%E8%97%A4-%E5%BA%B7%E6%AF%85/author/B01IT73OQM?language=en&amp;ref=ap_rdr&amp;isDramIntegrated=true&amp;shoppingPortalEnabled=true">Here’s the author’s page on Amazon.</a><br />
+The books walk through neural networks using only NumPy, which makes them great for understanding the fundamentals.</p>
+
+<p>But as I followed the code, it started to feel mechanical.<br />
+I wasn’t really thinking — just typing.</p>
+
+<p>So I thought: maybe I need to switch languages, something that would force me to use my brain more.</p>
+
+<p>The thing is, I’m a beginner at programming, and I only know a few languages.<br />
+Aside from Python, they’re all low-level: C, C++, Rust, and Zig.<br />
+Not exactly the easiest tools for building a deep learning framework —<br />
+but they were all I had.</p>
+
+<p>Then I came across <a href="https://github.com/karpathy/llm.c">llm.c by Karpathy</a>:<br />
+an entire GPT-2 implementation written in C.<br />
+It blew my mind.</p>
+
+<p>If someone could build GPT-2 in C, maybe I could too.<br />
+That project gave me the motivation to try building one myself in a low-level language.</p>
+
+<p>I chose Zig, since I’d recently become obsessed with it.</p>
+
+<h2 id="how-i-built-it">How I built it</h2>
+<hr />
+<h3 id="memory-management">Memory management</h3>
+<hr />
+
+<p>I decided to allocate everything up front and free it all at once.<br />
+(Think <code class="language-plaintext highlighter-rouge">ArenaAllocator</code>, or region-based memory management.)</p>
+
+<p>But there was a catch:<br />
+I still needed to call destructors manually during deallocation,<br />
+because:</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">Function</code> uses heap allocation</li>
+  <li><code class="language-plaintext highlighter-rouge">Variable</code> uses GPU memory allocation</li>
+</ul>
+
+<p>So I needed to be able to iterate over them.</p>
+
+<p>I used <code class="language-plaintext highlighter-rouge">MemoryPool</code>:</p>
+<ul>
+  <li>allocations were fast</li>
+  <li>pointer lifetimes matched the container’s</li>
+</ul>
+
+<p>To support iteration, I added <code class="language-plaintext highlighter-rouge">prev</code> and <code class="language-plaintext highlighter-rouge">next</code> pointers to both <code class="language-plaintext highlighter-rouge">Function</code> and <code class="language-plaintext highlighter-rouge">Variable</code>,<br />
+effectively making them doubly linked lists.</p>
+
+<p>Now I can traverse the chain and call destructors before freeing the pool.</p>
+
+<p>→ <a href="https://github.com/Haeryu/tomorin/blob/master/src/chain.zig">chain.zig</a><br />
+→ <a href="https://github.com/Haeryu/tomorin/blob/master/src/function.zig">function.zig</a><br />
+→ <a href="https://github.com/Haeryu/tomorin/blob/master/src/variable.zig">variable.zig</a></p>
+
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">// Chain deallocates everything at once.</span>
+<span class="k">pub</span> <span class="k">fn</span> <span class="n">destroyFunctions</span><span class="p">(</span><span class="n">self</span><span class="p">:</span> <span class="o">*</span><span class="n">Chain</span><span class="p">)</span> <span class="k">void</span> <span class="p">{</span>
+    <span class="k">while</span> <span class="p">(</span><span class="n">self</span><span class="p">.</span><span class="py">func_chain</span><span class="p">)</span> <span class="p">|</span><span class="n">head</span><span class="p">|</span> <span class="p">{</span>
+        <span class="k">const</span> <span class="n">next</span> <span class="o">=</span> <span class="n">head</span><span class="p">.</span><span class="py">next</span><span class="p">;</span>
+        <span class="n">head</span><span class="p">.</span><span class="nf">destroy</span><span class="p">();</span>
+        <span class="n">self</span><span class="p">.</span><span class="py">func_chain</span> <span class="o">=</span> <span class="n">next</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h3 id="inheriting-without-inheritance">Inheriting without inheritance</h3>
+<hr />
+
+<p>Zig has no inheritance — but deep learning operators tend to share a lot of logic.</p>
+
+<p>My early implementation had too much duplication:<br />
+each function type (like <code class="language-plaintext highlighter-rouge">Neg</code>, <code class="language-plaintext highlighter-rouge">Add</code>, etc.) needed its own forward, backward, destroy logic.<br />
+Many of them were just slight variations on the same pattern.</p>
+
+<p>So I reused the structure using something inspired by <code class="language-plaintext highlighter-rouge">CRTP</code> (Curiously Recurring Template Pattern).</p>
+
+<p>Each function defines a <code class="language-plaintext highlighter-rouge">Self</code> type and passes it into a reusable decorator struct.<br />
+Inside that struct, I implemented common behavior once —<br />
+like <code class="language-plaintext highlighter-rouge">forward</code>, <code class="language-plaintext highlighter-rouge">backward</code>, <code class="language-plaintext highlighter-rouge">destroy</code>, and <code class="language-plaintext highlighter-rouge">enqueue</code>.</p>
+
+<p>→ <a href="https://github.com/Haeryu/tomorin/blob/master/src/function.zig">function.zig</a><br />
+→ <a href="https://github.com/Haeryu/tomorin/blob/master/src/function1in1out.zig">function1in1out.zig</a></p>
+
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">fn</span> <span class="n">FuncDecorator1in1outBase</span><span class="p">(</span><span class="k">comptime</span> <span class="n">Self</span><span class="p">:</span> <span class="k">type</span><span class="p">)</span> <span class="k">type</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="k">struct</span> <span class="p">{</span>
+        <span class="k">pub</span> <span class="k">fn</span> <span class="n">forwardDecorated</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="o">*</span><span class="n">anyopaque</span><span class="p">,</span> <span class="n">args</span><span class="p">:</span> <span class="p">[]</span><span class="o">*</span><span class="n">TaggedVar</span><span class="p">,</span> <span class="n">out</span><span class="p">:</span> <span class="p">[]</span><span class="o">?*</span><span class="n">TaggedVar</span><span class="p">)</span> <span class="o">!</span><span class="k">void</span> <span class="p">{</span>
+            <span class="k">const</span> <span class="n">self</span><span class="p">:</span> <span class="o">*</span><span class="n">Self</span> <span class="o">=</span> <span class="nb">@ptrCast</span><span class="p">(</span><span class="nb">@alignCast</span><span class="p">(</span><span class="n">ctx</span><span class="p">));</span>
+            <span class="n">self</span><span class="p">.</span><span class="py">in</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+            <span class="k">var</span> <span class="n">y</span> <span class="o">=</span> <span class="k">try</span> <span class="n">self</span><span class="p">.</span><span class="nf">forward</span><span class="p">(</span><span class="o">&amp;</span><span class="n">self</span><span class="p">.</span><span class="py">in</span><span class="o">.?</span><span class="p">.</span><span class="nf">asUntaggedConst</span><span class="p">(</span><span class="n">Self</span><span class="p">.</span><span class="py">In</span><span class="p">).</span><span class="py">data</span><span class="p">);</span>
+            <span class="n">self</span><span class="p">.</span><span class="py">out</span> <span class="o">=</span> <span class="k">try</span> <span class="n">self</span><span class="p">.</span><span class="py">base</span><span class="p">.</span><span class="py">chain</span><span class="p">.</span><span class="nf">createVariable</span><span class="p">(</span><span class="n">Self</span><span class="p">.</span><span class="py">Out</span><span class="p">,</span> <span class="n">y</span><span class="p">.</span><span class="nf">move</span><span class="p">(),</span> <span class="kc">null</span><span class="p">);</span>
+            <span class="n">out</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">self</span><span class="p">.</span><span class="py">out</span><span class="o">.?</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="k">pub</span> <span class="k">fn</span> <span class="n">backwardDecorated</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="o">*</span><span class="n">anyopaque</span><span class="p">)</span> <span class="o">!</span><span class="k">void</span> <span class="p">{</span>
+            <span class="k">const</span> <span class="n">self</span><span class="p">:</span> <span class="o">*</span><span class="n">Self</span> <span class="o">=</span> <span class="nb">@ptrCast</span><span class="p">(</span><span class="nb">@alignCast</span><span class="p">(</span><span class="n">ctx</span><span class="p">));</span>
+            <span class="k">const</span> <span class="n">gx</span> <span class="o">=</span> <span class="k">try</span> <span class="n">self</span><span class="p">.</span><span class="nf">backward</span><span class="p">(</span><span class="n">self</span><span class="p">.</span><span class="py">out</span><span class="o">.?</span><span class="p">.</span><span class="nf">asUntaggedConst</span><span class="p">(</span><span class="n">Self</span><span class="p">.</span><span class="py">Out</span><span class="p">).</span><span class="py">grad</span><span class="o">.?</span><span class="p">);</span>
+            <span class="n">self</span><span class="p">.</span><span class="py">in</span><span class="o">.?</span><span class="p">.</span><span class="nf">setGrad</span><span class="p">(</span><span class="n">gx</span><span class="p">);</span>
+        <span class="p">}</span>
+
+        <span class="c">// destroy, enqueue, getGeneration... etc.</span>
+    <span class="p">};</span>
+<span class="p">}</span>
+
+<span class="k">pub</span> <span class="k">fn</span> <span class="n">FuncDecorator1in1out</span><span class="p">(</span><span class="k">comptime</span> <span class="n">Self</span><span class="p">:</span> <span class="k">type</span><span class="p">)</span> <span class="k">type</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="k">struct</span> <span class="p">{</span>
+        <span class="k">const</span> <span class="n">Base</span> <span class="o">=</span> <span class="n">FuncDecorator1in1outBase</span><span class="p">(</span><span class="n">Self</span><span class="p">);</span>
+
+        <span class="c">// create...</span>
+    <span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Then each actual operator can reuse the implementation with:</p>
+
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">const</span> <span class="n">Neg</span> <span class="o">=</span> <span class="k">struct</span> <span class="p">{</span>
+    <span class="n">in</span><span class="p">:</span> <span class="o">?*</span><span class="n">TaggedVar</span><span class="p">,</span>
+    <span class="n">out</span><span class="p">:</span> <span class="o">?*</span><span class="n">TaggedVar</span><span class="p">,</span>
+    <span class="n">base</span><span class="p">:</span> <span class="n">FunctionBase</span><span class="p">,</span>
+
+    <span class="k">pub</span> <span class="k">const</span> <span class="n">In</span> <span class="o">=</span> <span class="n">T</span><span class="p">;</span>
+    <span class="k">pub</span> <span class="k">const</span> <span class="n">Out</span> <span class="o">=</span> <span class="n">T</span><span class="p">;</span>
+
+    <span class="k">pub</span> <span class="k">usingnamespace</span> <span class="n">FuncDecorator1in1out</span><span class="p">(</span><span class="n">Self</span><span class="p">);</span>
+    <span class="k">const</span> <span class="n">Self</span> <span class="o">=</span> <span class="n">Neg</span><span class="p">;</span>
+
+    <span class="k">pub</span> <span class="k">fn</span> <span class="n">forward</span><span class="p">(</span><span class="n">self</span><span class="p">:</span> <span class="o">*</span><span class="n">Self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="o">*</span><span class="k">const</span> <span class="n">GPUTensor</span><span class="p">(</span><span class="n">T</span><span class="p">))</span> <span class="o">!</span><span class="n">GPUTensor</span><span class="p">(</span><span class="n">T</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">var</span> <span class="n">y</span> <span class="o">=</span> <span class="k">try</span> <span class="n">x</span><span class="p">.</span><span class="nf">cloneAsync</span><span class="p">(</span><span class="n">self</span><span class="p">.</span><span class="py">base</span><span class="p">.</span><span class="py">context</span><span class="p">.</span><span class="py">stream</span><span class="p">);</span>
+        <span class="k">try</span> <span class="n">y</span><span class="p">.</span><span class="nf">scale</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">self</span><span class="p">.</span><span class="py">base</span><span class="p">.</span><span class="py">context</span><span class="p">.</span><span class="py">stream</span><span class="p">);</span>
+        <span class="k">return</span> <span class="n">y</span><span class="p">.</span><span class="nf">move</span><span class="p">();</span>
+    <span class="p">}</span>
+
+    <span class="k">pub</span> <span class="k">fn</span> <span class="n">backward</span><span class="p">(</span><span class="n">self</span><span class="p">:</span> <span class="o">*</span><span class="n">Self</span><span class="p">,</span> <span class="n">gy</span><span class="p">:</span> <span class="o">*</span><span class="n">TaggedVar</span><span class="p">)</span> <span class="o">!*</span><span class="n">TaggedVar</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="k">try</span> <span class="n">negEx</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">gy</span><span class="p">,</span> <span class="n">self</span><span class="p">.</span><span class="py">base</span><span class="p">.</span><span class="py">chain</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>This kept the interface clean, removed lots of duplicated code,<br />
+and still gave each function its own forward/backward logic.</p>
+
+<p>Even more complex functions — like <code class="language-plaintext highlighter-rouge">Linear</code>, which takes three inputs —<br />
+use the same pattern with just a few customizations.</p>
+
+<h3 id="layers-are-just-data">Layers are just data</h3>
+<hr />
+
+<p>In this project, I didn’t use type erasure for layers.</p>
+
+<p>Unlike <code class="language-plaintext highlighter-rouge">Function</code>, layers don’t need to be queued, erased, or treated polymorphically.<br />
+So instead of dynamic dispatch, I relied on metaprogramming.</p>
+
+<p>Each layer is just a struct containing:</p>
+<ul>
+  <li>trainable parameters (like <code class="language-plaintext highlighter-rouge">w</code>, <code class="language-plaintext highlighter-rouge">b</code>)</li>
+  <li>other layers (like <code class="language-plaintext highlighter-rouge">Linear</code>, <code class="language-plaintext highlighter-rouge">Dropout</code>, etc.)</li>
+  <li>extra fields (<code class="language-plaintext highlighter-rouge">context</code>, <code class="language-plaintext highlighter-rouge">chain</code>, shape info…)</li>
+</ul>
+
+<p>To avoid boilerplate, I use <code class="language-plaintext highlighter-rouge">LayerFieldsFactory()</code><br />
+to generate these fields at compile time.</p>
+
+<p>→ <a href="https://github.com/Haeryu/tomorin/blob/master/src/layer.zig">layer.zig</a></p>
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">// Generates a struct with named fields for parameters and sublayers</span>
+<span class="k">pub</span> <span class="k">fn</span> <span class="n">LayerFieldsFactory</span><span class="p">(</span>
+    <span class="k">comptime</span> <span class="n">param_names</span><span class="p">:</span> <span class="p">[]</span><span class="k">const</span> <span class="p">[:</span><span class="mi">0</span><span class="p">]</span><span class="k">const</span> <span class="kt">u8</span><span class="p">,</span>
+    <span class="k">comptime</span> <span class="n">layer_names_types</span><span class="p">:</span> <span class="p">[]</span><span class="k">const</span> <span class="n">std</span><span class="p">.</span><span class="py">meta</span><span class="p">.</span><span class="nf">Tuple</span><span class="p">(</span><span class="o">&amp;.</span><span class="p">{</span> <span class="p">[:</span><span class="mi">0</span><span class="p">]</span><span class="k">const</span> <span class="kt">u8</span><span class="p">,</span> <span class="k">type</span> <span class="p">}),</span>
+<span class="p">)</span> <span class="k">type</span> <span class="p">{</span>
+    <span class="k">var</span> <span class="n">fields_info</span><span class="p">:</span> <span class="p">[</span><span class="n">param_names</span><span class="p">.</span><span class="py">len</span> <span class="o">+</span> <span class="n">layer_names_types</span><span class="p">.</span><span class="py">len</span><span class="p">]</span><span class="n">std</span><span class="p">.</span><span class="py">builtin</span><span class="p">.</span><span class="py">Type</span><span class="p">.</span><span class="py">StructField</span> <span class="o">=</span> <span class="k">undefined</span><span class="p">;</span>
+
+    <span class="k">var</span> <span class="n">i</span><span class="p">:</span> <span class="nb">comptime_int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">param_names</span><span class="p">)</span> <span class="p">|</span><span class="n">name</span><span class="p">|</span> <span class="p">{</span>
+        <span class="n">fields_info</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="o">.</span><span class="p">{</span>
+            <span class="p">.</span><span class="py">name</span> <span class="o">=</span> <span class="n">name</span><span class="p">,</span>
+            <span class="p">.</span><span class="k">type</span> <span class="o">=</span> <span class="o">?*</span><span class="n">TaggedVar</span><span class="p">,</span>
+            <span class="p">.</span><span class="py">alignment</span> <span class="o">=</span> <span class="nb">@alignOf</span><span class="p">(</span><span class="o">?*</span><span class="n">TaggedVar</span><span class="p">),</span>
+            <span class="p">.</span><span class="py">default_value_ptr</span> <span class="o">=</span> <span class="kc">null</span><span class="p">,</span>
+            <span class="p">.</span><span class="py">is_comptime</span> <span class="o">=</span> <span class="kc">false</span><span class="p">,</span>
+        <span class="p">};</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">layer_names_types</span><span class="p">)</span> <span class="p">|</span><span class="n">entry</span><span class="p">|</span> <span class="p">{</span>
+        <span class="n">fields_info</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="o">.</span><span class="p">{</span>
+            <span class="p">.</span><span class="py">name</span> <span class="o">=</span> <span class="n">entry</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="p">.</span><span class="k">type</span> <span class="o">=</span> <span class="n">entry</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+            <span class="p">.</span><span class="py">alignment</span> <span class="o">=</span> <span class="nb">@alignOf</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span>
+            <span class="p">.</span><span class="py">default_value_ptr</span> <span class="o">=</span> <span class="kc">null</span><span class="p">,</span>
+            <span class="p">.</span><span class="py">is_comptime</span> <span class="o">=</span> <span class="kc">false</span><span class="p">,</span>
+        <span class="p">};</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="nb">@Type</span><span class="p">(</span><span class="o">.</span><span class="p">{</span> <span class="o">.@</span><span class="s">"struct"</span> <span class="o">=</span> <span class="o">.</span><span class="p">{</span>
+        <span class="p">.</span><span class="py">layout</span> <span class="o">=</span> <span class="p">.</span><span class="py">auto</span><span class="p">,</span>
+        <span class="p">.</span><span class="py">fields</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">fields_info</span><span class="p">,</span>
+        <span class="p">.</span><span class="py">decls</span> <span class="o">=</span> <span class="o">&amp;.</span><span class="p">{},</span>
+        <span class="p">.</span><span class="py">is_tuple</span> <span class="o">=</span> <span class="kc">false</span><span class="p">,</span>
+        <span class="p">.</span><span class="py">backing_integer</span> <span class="o">=</span> <span class="kc">null</span><span class="p">,</span>
+    <span class="p">}</span> <span class="p">});</span>
+<span class="p">}</span>
+
+</code></pre></div></div>
+
+<p>Then <code class="language-plaintext highlighter-rouge">LayerDecorator(Self)</code> walks those fields at compile time
+to collect all parameters, destroy them recursively, or serialize to JSON/Binary.</p>
+
+<p>There’s no dynamic dispatch — just plain Zig structs and compile-time recursion.</p>
+
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">fn</span> <span class="n">LayerDecorator</span><span class="p">(</span><span class="k">comptime</span> <span class="n">Self</span><span class="p">:</span> <span class="k">type</span><span class="p">)</span> <span class="k">type</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="k">struct</span> <span class="p">{</span>
+        <span class="c">// Extracts all trainable parameters in order</span>
+        <span class="k">pub</span> <span class="k">fn</span> <span class="n">getParams</span><span class="p">(</span><span class="n">self</span><span class="p">:</span> <span class="o">*</span><span class="n">Self</span><span class="p">)</span> <span class="p">[</span><span class="nb">@This</span><span class="p">().</span><span class="nf">calcParamNum</span><span class="p">()]</span><span class="o">?*</span><span class="n">TaggedVar</span> <span class="p">{</span>
+            <span class="k">const</span> <span class="n">info</span> <span class="o">=</span> <span class="nb">@typeInfo</span><span class="p">(</span><span class="n">@FieldType</span><span class="p">(</span><span class="n">Self</span><span class="p">,</span> <span class="s">"fields"</span><span class="p">))</span><span class="o">.@</span><span class="s">"struct"</span><span class="p">;</span>
+            <span class="k">var</span> <span class="n">params</span><span class="p">:</span> <span class="p">[</span><span class="nb">@This</span><span class="p">().</span><span class="nf">calcParamNum</span><span class="p">()]</span><span class="o">?*</span><span class="n">TaggedVar</span> <span class="o">=</span> <span class="k">undefined</span><span class="p">;</span>
+
+            <span class="k">var</span> <span class="n">i</span><span class="p">:</span> <span class="kt">usize</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+            <span class="k">inline</span> <span class="k">for</span> <span class="p">(</span><span class="n">info</span><span class="p">.</span><span class="py">fields</span><span class="p">)</span> <span class="p">|</span><span class="n">field</span><span class="p">|</span> <span class="p">{</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">field</span><span class="p">.</span><span class="k">type</span> <span class="o">==</span> <span class="o">?*</span><span class="n">TaggedVar</span><span class="p">)</span> <span class="p">{</span>
+                    <span class="n">params</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="nb">@field</span><span class="p">(</span><span class="n">self</span><span class="p">.</span><span class="py">fields</span><span class="p">,</span> <span class="n">field</span><span class="p">.</span><span class="py">name</span><span class="p">);</span>
+                    <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span>
+                <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+                    <span class="k">var</span> <span class="n">sub</span> <span class="o">=</span> <span class="nb">@field</span><span class="p">(</span><span class="n">self</span><span class="p">.</span><span class="py">fields</span><span class="p">,</span> <span class="n">field</span><span class="p">.</span><span class="py">name</span><span class="p">).</span><span class="nf">getParams</span><span class="p">();</span>
+                    <span class="k">for</span> <span class="p">(</span><span class="n">sub</span><span class="p">)</span> <span class="p">|</span><span class="n">param</span><span class="p">|</span> <span class="p">{</span>
+                        <span class="n">params</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">param</span><span class="p">;</span>
+                        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span>
+                    <span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+            <span class="k">return</span> <span class="n">params</span><span class="p">;</span>
+        <span class="p">}</span>
+        
+        <span class="c">// Other helpers: clearGrads, saveJsonStringField, saveBinary...</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Even complex modules like <code class="language-plaintext highlighter-rouge">CausalSelfAttention</code>
+use the exact same mechanism:</p>
+
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">fn</span> <span class="n">CausalSelfAttention</span><span class="p">(</span><span class="k">comptime</span> <span class="n">T</span><span class="p">:</span> <span class="k">type</span><span class="p">)</span> <span class="k">type</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="k">struct</span> <span class="p">{</span>
+        <span class="k">pub</span> <span class="k">usingnamespace</span> <span class="n">LayerDecorator</span><span class="p">(</span><span class="n">Self</span><span class="p">);</span>
+
+        <span class="n">fields</span><span class="p">:</span> <span class="n">LayerFieldsFactory</span><span class="p">(</span>
+            <span class="o">&amp;.</span><span class="p">{},</span>
+            <span class="o">&amp;.</span><span class="p">{</span>
+                <span class="o">.</span><span class="p">{</span> <span class="s">"c_attn"</span><span class="p">,</span> <span class="n">Linear</span><span class="p">(</span><span class="n">T</span><span class="p">)</span> <span class="p">},</span>
+                <span class="o">.</span><span class="p">{</span> <span class="s">"c_proj"</span><span class="p">,</span> <span class="n">Linear</span><span class="p">(</span><span class="n">T</span><span class="p">)</span> <span class="p">},</span>
+                <span class="o">.</span><span class="p">{</span> <span class="s">"attn_dropout"</span><span class="p">,</span> <span class="n">Dropout</span><span class="p">(</span><span class="n">T</span><span class="p">)</span> <span class="p">},</span>
+                <span class="o">.</span><span class="p">{</span> <span class="s">"resid_dropout"</span><span class="p">,</span> <span class="n">Dropout</span><span class="p">(</span><span class="n">T</span><span class="p">)</span> <span class="p">},</span>
+            <span class="p">},</span>
+        <span class="p">),</span>
+        <span class="n">n_head</span><span class="p">:</span> <span class="kt">usize</span><span class="p">,</span>
+        <span class="n">n_embd</span><span class="p">:</span> <span class="kt">usize</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="n">GPUTensor</span><span class="p">(</span><span class="n">T</span><span class="p">),</span>
+        <span class="n">context</span><span class="p">:</span> <span class="o">*</span><span class="n">Context</span><span class="p">,</span>
+        <span class="c">// </span>
+    <span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Everything is plain data.
+Recursion handles nesting.
+Serialization is automatic.
+And no <code class="language-plaintext highlighter-rouge">dyn Layer</code> needed.</p>
+
+<h3 id="grand-theft-tokenizer">Grand Theft Tokenizer</h3>
+<hr />
+
+<p>To train GPT-2, I needed a tokenizer.</p>
+
+<p>But writing a Byte Pair Encoding (BPE) tokenizer from scratch —<br />
+especially one that’s fast enough — was out of reach for me at the time.<br />
+So I stole one. From Python.</p>
+
+<p>→ <a href="https://github.com/Haeryu/nina/blob/master/src/python/export_tokenizer_zig.py">export_tokenizer_zig.py</a></p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="n">tokenizers</span> <span class="kn">import</span> <span class="n">ByteLevelBPETokenizer</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="nc">ByteLevelBPETokenizer</span><span class="p">(...)</span>
+<span class="n">tokenizer</span><span class="p">.</span><span class="nf">train</span><span class="p">(...)</span>
+<span class="n">tokenizer</span><span class="p">.</span><span class="nf">save_model</span><span class="p">(...)</span>
+</code></pre></div></div>
+
+<p>I used HuggingFace’s pretrained tokenizer and trained a new one
+on my own dataset, adding custom special tokens like <user>, <bot>, <emotion>...</emotion></bot></user></p>
+
+<p>Then I exported the vocab, merges, and decoder map
+into raw .zig files using a Python script:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">export_zig_files</span><span class="p">():</span>
+    <span class="n">os</span><span class="p">.</span><span class="nf">makedirs</span><span class="p">(</span><span class="n">zig_output_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nf">open</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">datas/</span><span class="si">{</span><span class="n">model_prefix</span><span class="si">}</span><span class="s">-vocab.json</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">r</span><span class="sh">"</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="sh">"</span><span class="s">utf-8</span><span class="sh">"</span><span class="p">)</span> <span class="k">as</span> <span class="n">vf</span><span class="p">:</span>
+        <span class="n">vocab</span> <span class="o">=</span> <span class="n">json</span><span class="p">.</span><span class="nf">load</span><span class="p">(</span><span class="n">vf</span><span class="p">)</span>
+    <span class="n">sorted_vocab_by_id</span> <span class="o">=</span> <span class="nf">sorted</span><span class="p">(</span><span class="n">vocab</span><span class="p">.</span><span class="nf">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="k">with</span> <span class="nf">open</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="si">{</span><span class="n">zig_output_dir</span><span class="si">}</span><span class="s">/merges_data.zig</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">w</span><span class="sh">"</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="sh">"</span><span class="s">utf-8</span><span class="sh">"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">f</span><span class="p">.</span><span class="nf">write</span><span class="p">(</span><span class="sh">'</span><span class="s">// ⚠️ This file is autogenerated. Do not modify directly.</span><span class="se">\n</span><span class="sh">'</span><span class="p">)</span>
+        <span class="n">f</span><span class="p">.</span><span class="nf">write</span><span class="p">(</span><span class="sh">'</span><span class="s">// Generated by export_tokenizer_zig.py</span><span class="se">\n\n</span><span class="sh">'</span><span class="p">)</span>
+        <span class="n">f</span><span class="p">.</span><span class="nf">write</span><span class="p">(</span><span class="sh">"</span><span class="s">pub const merges_data = [_]struct { []const u8, []const u8 }{</span><span class="se">\n</span><span class="sh">"</span><span class="p">)</span>
+        <span class="k">with</span> <span class="nf">open</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">datas/</span><span class="si">{</span><span class="n">model_prefix</span><span class="si">}</span><span class="s">-merges.txt</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">r</span><span class="sh">"</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="sh">"</span><span class="s">utf-8</span><span class="sh">"</span><span class="p">)</span> <span class="k">as</span> <span class="n">mf</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">mf</span><span class="p">:</span>
+                <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">.</span><span class="nf">strip</span><span class="p">()</span>
+               <span class="p">(...)</span>
+</code></pre></div></div>
+
+<p>Then I got a nice statically defined Zig file like this:</p>
+
+<p>→ <a href="https://github.com/Haeryu/nina/blob/master/src/tokenizer/merges_data.zig">merges_data.zig</a></p>
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">// ⚠️ This file is autogenerated. Do not modify directly.</span>
+<span class="k">pub</span> <span class="k">const</span> <span class="n">merges_data</span> <span class="o">=</span> <span class="p">[</span><span class="mi">_</span><span class="p">]</span><span class="k">struct</span> <span class="p">{</span> <span class="p">[]</span><span class="k">const</span> <span class="kt">u8</span><span class="p">,</span> <span class="p">[]</span><span class="k">const</span> <span class="kt">u8</span> <span class="p">}{</span>
+    <span class="o">.</span><span class="p">{</span> <span class="s">"Ġ"</span><span class="p">,</span> <span class="s">"t"</span> <span class="p">},</span>
+    <span class="o">.</span><span class="p">{</span> <span class="s">"h"</span><span class="p">,</span> <span class="s">"e"</span> <span class="p">},</span>
+    <span class="o">.</span><span class="p">{</span> <span class="s">"Ġ"</span><span class="p">,</span> <span class="s">"a"</span> <span class="p">},</span>
+    <span class="o">.</span><span class="p">{</span> <span class="s">"o"</span><span class="p">,</span> <span class="s">"u"</span> <span class="p">},</span>
+    <span class="o">.</span><span class="p">{</span> <span class="s">"Ġ"</span><span class="p">,</span> <span class="s">"s"</span> <span class="p">},</span>
+    <span class="o">...</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>And I initialized the merge table using std.StaticStringMap —
+so it’s all compile-time, with zero runtime bloat!</p>
+
+<p>→ <a href="https://github.com/Haeryu/nina/blob/master/src/tokenizer/merge_map.zig">merge_map.zig</a></p>
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">const</span> <span class="n">std</span> <span class="o">=</span> <span class="nb">@import</span><span class="p">(</span><span class="s">"std"</span><span class="p">);</span>
+
+<span class="k">const</span> <span class="n">merges_data</span> <span class="o">=</span> <span class="nb">@import</span><span class="p">(</span><span class="s">"merges_data.zig"</span><span class="p">).</span><span class="py">merges_data</span><span class="p">;</span>
+
+<span class="k">pub</span> <span class="k">const</span> <span class="n">merge_entries</span> <span class="o">=</span> <span class="n">blk</span><span class="p">:</span> <span class="p">{</span>
+    <span class="k">var</span> <span class="n">entries</span><span class="p">:</span> <span class="p">[</span><span class="n">merges_data</span><span class="p">.</span><span class="py">len</span><span class="p">]</span><span class="k">struct</span> <span class="p">{</span> <span class="p">[]</span><span class="k">const</span> <span class="kt">u8</span><span class="p">,</span> <span class="kt">usize</span> <span class="p">}</span> <span class="o">=</span> <span class="k">undefined</span><span class="p">;</span>
+    <span class="nb">@setEvalBranchQuota</span><span class="p">(</span><span class="mi">99999999</span><span class="p">);</span>
+    <span class="k">for</span> <span class="p">(</span><span class="o">&amp;</span><span class="n">merges_data</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">entries</span><span class="p">,</span> <span class="mi">0</span><span class="o">..</span><span class="p">)</span> <span class="p">|</span><span class="n">pair</span><span class="p">,</span> <span class="o">*</span><span class="n">entry</span><span class="p">,</span> <span class="n">i</span><span class="p">|</span> <span class="p">{</span>
+        <span class="k">const</span> <span class="n">joined</span> <span class="o">=</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">++</span> <span class="s">" "</span> <span class="o">++</span> <span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span> <span class="c">// concat with space</span>
+        <span class="n">entry</span><span class="o">.*</span> <span class="o">=</span> <span class="o">.</span><span class="p">{</span> <span class="n">joined</span><span class="p">,</span> <span class="nb">@intCast</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="p">};</span>
+    <span class="p">}</span>
+    <span class="k">break</span> <span class="p">:</span><span class="n">blk</span> <span class="n">entries</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="k">pub</span> <span class="k">const</span> <span class="n">merge_map</span><span class="p">:</span> <span class="n">std</span><span class="p">.</span><span class="nf">StaticStringMap</span><span class="p">(</span><span class="kt">usize</span><span class="p">)</span> <span class="o">=</span> <span class="p">.</span><span class="nf">initComptime</span><span class="p">(</span><span class="n">merge_entries</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>But then I realized something:</p>
+
+<p>My custom Zig tokenizer was way too slow
+to tokenize large corpus files at training time.</p>
+
+<p>So I took another shortcut:
+I tokenized everything in advance (using Python)
+and saved the token IDs to binary files.</p>
+
+<p>Then in Zig, I just loaded them like this:</p>
+
+<p>→ <a href="https://github.com/Haeryu/nina/blob/master/src/dataset.zig">dataset.zig</a></p>
+<div class="language-zig highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">fn</span> <span class="n">init</span><span class="p">(</span><span class="n">allocator</span><span class="p">:</span> <span class="n">Allocator</span><span class="p">,</span> <span class="n">tokenizer</span><span class="p">:</span> <span class="o">*</span><span class="k">const</span> <span class="n">BpeTokenizer</span><span class="p">,</span> <span class="n">token_paths</span><span class="p">:</span> <span class="p">[]</span><span class="k">const</span> <span class="p">[]</span><span class="k">const</span> <span class="kt">u8</span><span class="p">)</span> <span class="o">!</span><span class="n">Self</span> <span class="p">{</span>
+    <span class="k">var</span> <span class="n">token_ids</span><span class="p">:</span> <span class="n">std</span><span class="p">.</span><span class="nf">ArrayList</span><span class="p">(</span><span class="kt">usize</span><span class="p">)</span> <span class="o">=</span> <span class="p">.</span><span class="nf">init</span><span class="p">(</span><span class="n">allocator</span><span class="p">);</span>
+    <span class="k">defer</span> <span class="n">token_ids</span><span class="p">.</span><span class="nf">deinit</span><span class="p">();</span>
+
+    <span class="k">for</span> <span class="p">(</span><span class="n">token_paths</span><span class="p">)</span> <span class="p">|</span><span class="n">path</span><span class="p">|</span> <span class="p">{</span>
+        <span class="k">var</span> <span class="n">file</span> <span class="o">=</span> <span class="k">try</span> <span class="n">std</span><span class="p">.</span><span class="py">fs</span><span class="p">.</span><span class="nf">cwd</span><span class="p">().</span><span class="nf">openFile</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="o">.</span><span class="p">{});</span>
+        <span class="k">defer</span> <span class="n">file</span><span class="p">.</span><span class="nf">close</span><span class="p">();</span>
+        <span class="k">var</span> <span class="n">reader</span> <span class="o">=</span> <span class="n">std</span><span class="p">.</span><span class="py">io</span><span class="p">.</span><span class="nf">bufferedReader</span><span class="p">(</span><span class="n">file</span><span class="p">.</span><span class="nf">reader</span><span class="p">()).</span><span class="nf">reader</span><span class="p">();</span>
+
+        <span class="k">const</span> <span class="n">count</span> <span class="o">=</span> <span class="k">try</span> <span class="n">reader</span><span class="p">.</span><span class="nf">readInt</span><span class="p">(</span><span class="kt">usize</span><span class="p">,</span> <span class="p">.</span><span class="py">little</span><span class="p">);</span>
+        <span class="k">try</span> <span class="n">token_ids</span><span class="p">.</span><span class="nf">appendNTimes</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">count</span><span class="p">);</span>
+        <span class="k">try</span> <span class="n">reader</span><span class="p">.</span><span class="nf">readNoEof</span><span class="p">(</span><span class="n">std</span><span class="p">.</span><span class="py">mem</span><span class="p">.</span><span class="nf">sliceAsBytes</span><span class="p">(</span><span class="n">token_ids</span><span class="p">.</span><span class="py">items</span><span class="p">[</span><span class="n">token_ids</span><span class="p">.</span><span class="py">items</span><span class="p">.</span><span class="py">len</span> <span class="o">-</span> <span class="n">count</span> <span class="o">..</span><span class="p">]));</span>
+    <span class="p">}</span>
+
+    <span class="o">...</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>I know, It’s not elegant. But,</p>
+
+<blockquote>
+  <p>“Good artists copy. Great artists steal.”</p>
+</blockquote>
+
+<p>I stole a tokenizer.</p>
+
+<h2 id="final-thoughts">Final thoughts</h2>
+<hr />
+
+<p>That’s it for now.</p>
+
+<p>Maybe I’ll clean it up. Maybe I won’t.<br />
+But it runs. And I learned a lot.</p>
+
+<p>And if you’re wondering — yes, you can build deep learning from scratch.<br />
+Even in Zig.</p>
+
+  </main>
+
+  <footer>
+    <hr>
+    <p style="font-size: 0.8em; color: #777;">© Workspace • 2025</p>
+  </footer>
+</body>
+</html>

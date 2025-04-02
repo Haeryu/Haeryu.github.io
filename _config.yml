@@ -1,0 +1,15 @@
+title: Workspace
+description: ""
+baseurl: ""
+url: "https://haeryu.github.io/"
+markdown: kramdown
+theme: minima
+highlighter: rouge
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+exclude: ["README.md", "Gemfile", "Gemfile.lock"]
+kramdown:
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: 'highlight'

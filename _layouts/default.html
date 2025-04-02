@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko-en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ page.title }} | {{ site.title }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{ '/assets/css/style.scss' | relative_url }}">
+</head>
+<body>
+  <header>
+    <h1><a href="{{ '/' | relative_url }}">{{ site.title }}</a></h1>
+    <p>{{ site.description }}</p>
+    <nav>
+      <a href="{{ '/' | relative_url }}">Home</a> |
+      <a href="{{ '/blog.html' | relative_url }}">Blog</a>
+    </nav>
+    <hr>
+  </header>
+
+  <main>
+    {{ content }}
+  </main>
+
+  <footer>
+    <hr>
+    <p style="font-size: 0.8em; color: #777;">© {{ site.title }} • {{ site.time | date: "%Y" }}</p>
+  </footer>
+</body>
+</html>
