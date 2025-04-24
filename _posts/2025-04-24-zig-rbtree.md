@@ -6,6 +6,7 @@ date: 2025-04-24
 ---
 
 I made a Red-Black Tree in Zig because I couldn’t find one on the internet.
+
 [repo](https://github.com/Haeryu/rbtree/tree/master)
 
  - No pointers.
